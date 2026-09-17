@@ -1,0 +1,32 @@
+categories:
+  - Food
+  - Rent
+  - Transport
+  - Shopping
+  - Bills
+  - Transfer
+  - Income
+  - Entertainment
+  - Healthcare
+  - Education
+  - Other
+
+rules:
+  - pattern: SWIGGY
+    category: Food
+  - pattern: ZOMATO
+    category: Food
+  - pattern: UBER
+    category: Transport
+  - pattern: OLA
+    category: Transport
+  - pattern: NETFLIX
+    category: Entertainment
+  - pattern: AMAZON
+    category: Shopping
+  - pattern: ELECTRICITY
+    category: Bills
+  - pattern: RENT
+    category: Rent
+  - pattern: SALARY
+    category: Income
