@@ -26,8 +26,13 @@ if uploaded and st.button("Ingest"):
 
 col1, col2 = st.columns(2)
 with col1:
+    use_llm = st.checkbox("Use Ollama for leftover rows", value=False)
     if st.button("Categorize (rules + optional Ollama)"):
-        r = requests.post(f"{base}/categorize", json={"use_llm": True}, timeout=120)
+        r = requests.post(
+            f"{base}/categorize",
+            json={"use_llm": use_llm},
+            timeout=600 if use_llm else 120,
+        )
         st.write(r.json() if r.status_code == 200 else r.text)
 
 with col2:
@@ -49,7 +54,8 @@ if tx.status_code == 200:
 st.subheader("Ask")
 q = st.text_input("Question", "How much on food in August 2024?")
 if st.button("Ask"):
-    r = requests.post(f"{base}/ask", json={"question": q}, timeout=60)
+    with st.spinner("Asking…"):
+        r = requests.post(f"{base}/ask", json={"question": q}, timeout=120)
     if r.ok:
         body = r.json()
         st.write(body["answer"])

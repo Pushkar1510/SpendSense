@@ -38,3 +38,18 @@ def test_ingest_file_dedupes_on_reupload(db_path):
     count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
     assert count == 8
     conn.close()
+
+
+BANK_FIXTURE = Path(__file__).parent / "fixtures" / "bankstatements_sample.csv"
+
+
+def test_parse_bankstatements_name_and_drcr_format():
+    rows = parse_csv_bytes(BANK_FIXTURE.read_bytes())
+    assert len(rows) == 4
+    atm = next(r for r in rows if r["description"] == "ATM")
+    assert atm["amount"] == -10000.0
+    upi = next(r for r in rows if "AYUBRAJE" in r["description"])
+    assert upi["amount"] == -930.0
+    assert upi["description"] == "UPI AYUBRAJE"
+    credit = next(r for r in rows if "NAFEESAB" in r["description"])
+    assert credit["amount"] == 1000.0

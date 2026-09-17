@@ -101,25 +101,29 @@ def ask(question: str, db_path: Path | None = None) -> dict:
             base = f"Spent ₹{total:.2f} on {cat}."
             if not citations:
                 base = "No matching expenses for that query."
+    finally:
+        conn.close()
 
-        answer = base
-        if ollama_client.is_up() and citations is not None:
-            try:
-                phrased = ollama_client.generate(
-                    "Rephrase this finance answer in one short sentence. "
-                    "Do not change any numbers.\n"
-                    f"Answer: {base}"
-                )
-                if phrased:
-                    answer = phrased.splitlines()[0].strip()
-                    # safety: ensure original total string still present when applicable
-                    if "₹" in base and "₹" not in answer:
-                        answer = base
-            except Exception:
-                answer = base
+    # Do not hold the SQLite lock while waiting on Ollama
+    answer = base
+    if ollama_client.is_up() and citations is not None:
+        try:
+            phrased = ollama_client.generate(
+                "Rephrase this finance answer in one short sentence. "
+                "Do not change any numbers.\n"
+                f"Answer: {base}"
+            )
+            if phrased:
+                answer = phrased.splitlines()[0].strip()
+                if "₹" in base and "₹" not in answer:
+                    answer = base
+        except Exception:
+            answer = base
 
-        trace = {"intent": intent, "tool": tool_name, "filters": filters}
-        latency_ms = int((time.perf_counter() - started) * 1000)
+    trace = {"intent": intent, "tool": tool_name, "filters": filters}
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    conn = get_connection(db_path)
+    try:
         repo.log_query(
             conn,
             question=question,
@@ -128,6 +132,6 @@ def ask(question: str, db_path: Path | None = None) -> dict:
             latency_ms=latency_ms,
         )
         conn.commit()
-        return {"answer": answer, "citations": citations, "tool_trace": trace}
     finally:
         conn.close()
+    return {"answer": answer, "citations": citations, "tool_trace": trace}

@@ -11,10 +11,25 @@ import pandas as pd
 from app.config import DEFAULT_CURRENCY
 
 DATE_ALIASES = {"date", "txn date", "txn_date", "transaction date", "value date"}
-DESC_ALIASES = {"description", "narration", "remarks", "particulars", "details"}
+DESC_ALIASES = {
+    "description",
+    "narration",
+    "remarks",
+    "particulars",
+    "details",
+    "name",
+    "payee",
+    "beneficiary",
+    "merchant",
+    "transaction details",
+    "transaction description",
+    "transaction remarks",
+}
 AMOUNT_ALIASES = {"amount", "txn amount", "transaction amount"}
 DEBIT_ALIASES = {"debit", "withdrawal", "dr"}
 CREDIT_ALIASES = {"credit", "deposit", "cr"}
+DRCR_ALIASES = {"drcr", "dr cr", "dr/cr", "type", "txn type", "transaction type"}
+MODE_ALIASES = {"mode", "channel", "payment mode", "txn mode"}
 
 
 def _norm(col: str) -> str:
@@ -26,7 +41,25 @@ def _find_col(columns: list[str], aliases: set[str]) -> str | None:
     for alias in aliases:
         if alias in normalized:
             return normalized[alias]
+    # Longer aliases may appear inside headers like "Transaction Description"
+    for alias in sorted(aliases, key=len, reverse=True):
+        if len(alias) < 4:
+            continue
+        for norm, original in normalized.items():
+            if alias in norm:
+                return original
     return None
+
+
+def _signed_amount(amount: float, drcr: object | None) -> float:
+    if drcr is None or (isinstance(drcr, float) and pd.isna(drcr)):
+        return float(amount)
+    token = str(drcr).strip().lower()
+    if token in {"db", "dr", "debit", "withdrawal", "d"}:
+        return -abs(float(amount))
+    if token in {"cr", "credit", "deposit", "c"}:
+        return abs(float(amount))
+    return float(amount)
 
 
 def dedupe_hash(txn_date: str, amount: float, description: str) -> str:
@@ -58,25 +91,43 @@ def parse_csv_bytes(data: bytes) -> list[dict]:
     amount_col = _find_col(cols, AMOUNT_ALIASES)
     debit_col = _find_col(cols, DEBIT_ALIASES)
     credit_col = _find_col(cols, CREDIT_ALIASES)
+    drcr_col = _find_col(cols, DRCR_ALIASES)
+    mode_col = _find_col(cols, MODE_ALIASES)
 
     missing: list[str] = []
     if not date_col:
         missing.append("date")
-    if not desc_col:
+    if not desc_col and not mode_col:
         missing.append("description")
     if not amount_col and not (debit_col and credit_col):
         missing.append("amount or debit/credit")
     if missing:
-        raise ValueError(f"missing required CSV columns: {', '.join(missing)}")
+        found = ", ".join(cols)
+        raise ValueError(
+            f"missing required CSV columns: {', '.join(missing)} "
+            f"(found: {found})"
+        )
 
     rows: list[dict] = []
     for record in df.to_dict(orient="records"):
-        description = str(record[desc_col]).strip()
-        if not description or description.lower() == "nan":
+        parts: list[str] = []
+        if mode_col:
+            mode = str(record.get(mode_col, "")).strip()
+            if mode and mode.lower() != "nan":
+                parts.append(mode)
+        if desc_col:
+            desc = str(record.get(desc_col, "")).strip()
+            if desc and desc.lower() != "nan":
+                parts.append(desc)
+        description = " ".join(parts).strip()
+        if not description:
             continue
         txn_date = _parse_date(record[date_col])
         if amount_col:
-            amount = float(record[amount_col])
+            amount = _signed_amount(
+                float(record[amount_col]),
+                record.get(drcr_col) if drcr_col else None,
+            )
         else:
             debit = record.get(debit_col)
             credit = record.get(credit_col)

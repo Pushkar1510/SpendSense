@@ -13,12 +13,12 @@ def is_up() -> bool:
         return False
 
 
-def generate(prompt: str, model: str | None = None) -> str:
+def generate(prompt: str, model: str | None = None, timeout: float = 15.0) -> str:
     payload = {
         "model": model or OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
     }
-    r = httpx.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=60.0)
+    r = httpx.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=timeout)
     r.raise_for_status()
     return str(r.json().get("response", "")).strip()

@@ -46,28 +46,42 @@ def _llm_category(description: str, categories: list[str]) -> str | None:
 
 def categorize_all(db_path: Path | None = None, use_llm: bool = True) -> dict:
     categories, _ = load_rules()
-    conn = get_connection(db_path)
     counts = {"rule": 0, "llm": 0, "unchanged": 0}
+    llm_ok = use_llm and ollama_client.is_up()
+
+    conn = get_connection(db_path)
     try:
-        rows = conn.execute(
-            "SELECT id, description FROM transactions WHERE category_source = 'uncategorized'"
-        ).fetchall()
-        llm_ok = use_llm and ollama_client.is_up()
-        for row in rows:
-            cat = apply_rules(row["description"])
-            source = "rule"
-            if cat is None and llm_ok:
-                cat = _llm_category(row["description"], categories)
-                source = "llm"
-            if cat is None:
-                counts["unchanged"] += 1
-                continue
-            conn.execute(
-                "UPDATE transactions SET category = ?, category_source = ? WHERE id = ?",
-                (cat, source, row["id"]),
-            )
-            counts[source] += 1
-        conn.commit()
-        return counts
+        rows = [
+            {"id": r["id"], "description": r["description"]}
+            for r in conn.execute(
+                "SELECT id, description FROM transactions WHERE category_source = 'uncategorized'"
+            ).fetchall()
+        ]
     finally:
         conn.close()
+
+    updates: list[tuple[str, str, int]] = []
+    for row in rows:
+        cat = apply_rules(row["description"])
+        source = "rule"
+        # LLM calls happen without an open DB connection (avoids sqlite lock)
+        if cat is None and llm_ok:
+            cat = _llm_category(row["description"], categories)
+            source = "llm"
+        if cat is None:
+            counts["unchanged"] += 1
+            continue
+        updates.append((cat, source, row["id"]))
+        counts[source] += 1
+
+    if updates:
+        conn = get_connection(db_path)
+        try:
+            conn.executemany(
+                "UPDATE transactions SET category = ?, category_source = ? WHERE id = ?",
+                updates,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return counts
